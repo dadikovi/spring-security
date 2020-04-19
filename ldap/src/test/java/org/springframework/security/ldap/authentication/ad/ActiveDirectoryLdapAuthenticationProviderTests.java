@@ -58,6 +58,9 @@ import static org.springframework.security.ldap.authentication.ad.ActiveDirector
  * @author Rob Winch
  */
 public class ActiveDirectoryLdapAuthenticationProviderTests {
+	public static final String EXISTING_LDAP_PROVIDER = "ldap://192.168.1.200/";
+	public static final String NON_EXISTING_LDAP_PROVIDER = "ldap://192.168.1.201/";
+
 	@Rule
 	public ExpectedException thrown = ExpectedException.none();
 
@@ -384,10 +387,17 @@ public class ActiveDirectoryLdapAuthenticationProviderTests {
 		provider.authenticate(joe);
 	}
 
+	@Test(expected = org.springframework.security.authentication.InternalAuthenticationServiceException.class )
+	public void connectionExceptionIsWrappedInInternalException() throws Exception {
+		ActiveDirectoryLdapAuthenticationProvider noneReachableProvider = new ActiveDirectoryLdapAuthenticationProvider(
+				"mydomain.eu", NON_EXISTING_LDAP_PROVIDER, "dc=ad,dc=eu,dc=mydomain");
+		noneReachableProvider.doAuthentication(joe);
+	}
+
 	@Test
 	public void rootDnProvidedSeparatelyFromDomainAlsoWorks() throws Exception {
 		ActiveDirectoryLdapAuthenticationProvider provider = new ActiveDirectoryLdapAuthenticationProvider(
-				"mydomain.eu", "ldap://192.168.1.200/", "dc=ad,dc=eu,dc=mydomain");
+				"mydomain.eu", EXISTING_LDAP_PROVIDER, "dc=ad,dc=eu,dc=mydomain");
 		checkAuthentication("dc=ad,dc=eu,dc=mydomain", provider);
 
 	}
