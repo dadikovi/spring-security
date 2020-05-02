@@ -19,9 +19,9 @@ package org.springframework.security.web;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.firewall.DefaultRequestRejectedHandler;
 import org.springframework.security.web.firewall.FirewalledRequest;
 import org.springframework.security.web.firewall.HttpFirewall;
+import org.springframework.security.web.firewall.HttpStatusRequestRejectedHandler;
 import org.springframework.security.web.firewall.RequestRejectedException;
 import org.springframework.security.web.firewall.RequestRejectedHandler;
 import org.springframework.security.web.firewall.StrictHttpFirewall;
@@ -153,7 +153,7 @@ public class FilterChainProxy extends GenericFilterBean {
 
 	private HttpFirewall firewall = new StrictHttpFirewall();
 
-	private RequestRejectedHandler requestRejectedHandler = new DefaultRequestRejectedHandler();
+	private RequestRejectedHandler requestRejectedHandler = new HttpStatusRequestRejectedHandler();
 
 	// ~ Methods
 	// ========================================================================================================
@@ -182,8 +182,6 @@ public class FilterChainProxy extends GenericFilterBean {
 			try {
 				request.setAttribute(FILTER_APPLIED, Boolean.TRUE);
 				doFilterInternal(request, response, chain);
-			} catch (RequestRejectedException e) {
-				this.requestRejectedHandler.handle((HttpServletRequest) request, (HttpServletResponse) response, e);
 			}
 			finally {
 				SecurityContextHolder.clearContext();
@@ -197,30 +195,31 @@ public class FilterChainProxy extends GenericFilterBean {
 
 	private void doFilterInternal(ServletRequest request, ServletResponse response,
 			FilterChain chain) throws IOException, ServletException {
+		try {
+			FirewalledRequest fwRequest = firewall.getFirewalledRequest((HttpServletRequest) request);
+			HttpServletResponse fwResponse = firewall.getFirewalledResponse((HttpServletResponse) response);
 
-		FirewalledRequest fwRequest = firewall
-				.getFirewalledRequest((HttpServletRequest) request);
-		HttpServletResponse fwResponse = firewall
-				.getFirewalledResponse((HttpServletResponse) response);
+			List<Filter> filters = getFilters(fwRequest);
 
-		List<Filter> filters = getFilters(fwRequest);
+			if ( filters == null || filters.size() == 0 ) {
+				if ( logger.isDebugEnabled() ) {
+					logger.debug(UrlUtils.buildRequestUrl(fwRequest) + (filters == null ?
+							" has no matching filters" :
+							" has an empty filter list"));
+				}
 
-		if (filters == null || filters.size() == 0) {
-			if (logger.isDebugEnabled()) {
-				logger.debug(UrlUtils.buildRequestUrl(fwRequest)
-						+ (filters == null ? " has no matching filters"
-								: " has an empty filter list"));
+				fwRequest.reset();
+
+				chain.doFilter(fwRequest, fwResponse);
+
+				return;
 			}
 
-			fwRequest.reset();
-
-			chain.doFilter(fwRequest, fwResponse);
-
-			return;
+			VirtualFilterChain vfc = new VirtualFilterChain(fwRequest, chain, filters);
+			vfc.doFilter(fwRequest, fwResponse);
+		} catch (RequestRejectedException e) {
+			this.requestRejectedHandler.handle((HttpServletRequest) request, (HttpServletResponse) response, e);
 		}
-
-		VirtualFilterChain vfc = new VirtualFilterChain(fwRequest, chain, filters);
-		vfc.doFilter(fwRequest, fwResponse);
 	}
 
 	/**
